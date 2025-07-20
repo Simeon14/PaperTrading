@@ -72,7 +72,7 @@ def sellall(ticker):
 
 def main():
     load()
-    print("Commands: buy TICKER AMOUNT | sell TICKER AMOUNT | sellall TICKER | list | save | load | exit")
+    print("Welcome to SW paper trading system!")
     while True:
         parts = input("> ").strip().split()
         if not parts:
@@ -107,13 +107,13 @@ def main():
             if not Tickers:
                 print("↳ (no positions)")
             else:
-                values = []
+                prices = []
                 for ticker, qty in zip(Tickers, Quantity):
                     v = price(ticker)
-                    values.append(f"${v:,.2f}")
+                    prices.append(f"${v:,.2f}")
                 df = pd.DataFrame({
                     "Ticker": Tickers,
-                    "Value": values
+                    "Price": prices
                 })
                 print(df.to_string(index=False))
 
@@ -126,6 +126,9 @@ def main():
         elif cmd in ("exit", "quit"):
             print("Goodbye!")
             break
+
+        elif cmd == "help":
+            print("Commands: buy TICKER AMOUNT | sell TICKER AMOUNT | sellall TICKER | list | save | load | exit")
 
         else:
             print("Unknown command or wrong args. Type one of:")
