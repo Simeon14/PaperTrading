@@ -156,9 +156,9 @@ def list():
     green = "\033[92m"
     red = "\033[91m"
     reset = "\033[0m"
-    print(f"Cash: ${Cash:,.2f}")
     if not Tickers:
-        print("↳ (no positions)")
+        print("No Positions")
+        print(f"Cash: ${Cash:,.2f}")
     else:
         prices = []
         values = []
@@ -205,6 +205,7 @@ def list():
             "P/L(%)": pl_percent
         })
         print(tabulate(df, headers='keys', tablefmt='fancy_grid', showindex=False))
+        print(f"Cash: ${Cash:,.2f}")
 
 def quote(ticker):
     p = price(ticker)
