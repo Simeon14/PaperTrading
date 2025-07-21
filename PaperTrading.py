@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 import datetime
 
-Cash = 100000
+Cash = 1000000
 Tickers = [] 
 Quantity = []
 PurchasePrice = []
@@ -41,7 +41,6 @@ def load():
         PurchasePrice = []
         Cash = 100000
         print("No data found. Starting with default values.")
-
 
 def price(ticker):
     try:
@@ -131,11 +130,87 @@ def list():
         })
         print(df.to_string(index=False))
 
+def quote(ticker):
+    p = price(ticker)
+    if p is None:
+        print(f"Quote for {ticker}: N/A")
+        return
+    print(f"Price: ${p:,.2f}")
+    # Daily Change
+    try:
+        tk = yf.Ticker(ticker)
+        hist = tk.history(period="2d")
+        if len(hist) < 2:
+            print("(No previous close data)")
+        else:
+            prev_close = hist['Close'].iloc[-2]
+            change = p - prev_close
+            percent_change = (change / prev_close) * 100
+            print(f"Daily Change: ${change:+.2f} ({percent_change:+.2f}%)")
+    except Exception as e:
+        print(f"(Error getting daily change: {e})")
+    # YTD Change
+    try:
+        tk = yf.Ticker(ticker)
+        ytd_hist = tk.history(period="ytd")
+        if not ytd_hist.empty:
+            ytd_start_price = ytd_hist['Close'].iloc[0]
+            ytd_change = p - ytd_start_price
+            ytd_percent = (ytd_change / ytd_start_price) * 100
+            print(f"YTD Change: ${ytd_change:+.2f} ({ytd_percent:+.2f}%)")
+        else:
+            print("YTD Change: N/A")
+    except Exception as e:
+        print(f"(Error getting YTD change: {e})")
+    # Volume
+    try:
+        tk = yf.Ticker(ticker)
+        hist = tk.history(period="2d")
+        if hist.empty:
+            print(f"No data found for {ticker}")
+        else:
+            last_volume = hist['Volume'].iloc[-1]
+            print(f"Volume: {last_volume:,}")
+    except Exception as e:
+        print(f"Error getting volume for {ticker}: {e}")
+
+def plot_yearly(ticker):
+    try:
+        tk = yf.Ticker(ticker)
+        hist = tk.history(period="1y")
+        if hist.empty:
+            print(f"No data found for {ticker}")
+            return
+        plt.figure(figsize=(10, 5))
+        plt.plot(hist.index, hist['Close'], label=f"{ticker} Close Price")
+        plt.title(f"{ticker} Price Over Last Year")
+        plt.xlabel("Date")
+        plt.ylabel("Price ($)")
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+    except Exception as e:
+        print(f"Error plotting {ticker}: {e}")
+
+def description(ticker):
+    try:
+        tk = yf.Ticker(ticker)
+        info = tk.info
+        desc = info.get("longBusinessSummary") or info.get("shortBusinessSummary")
+        if desc:
+            print(desc)
+        else:
+            print("No description available.")
+    except Exception as e:
+        print(f"Error getting description for {ticker}: {e}")
+
 def help():
     print("Welcome to SW paper trading system, here are the commands:")
     print("buy (ticker) (amount) - Buy a specific amount of a ticker")
     print("sell (ticker) (amount) - Sell a specific amount of a ticker")
     print("sellall (ticker) - Sell all of a ticker")
+    print("quote (ticker) - Get current price for a ticker")
     print("list - List all positions")
     print("save - Save the current positions and cash to a file")
     print("load - Load the positions and cash from a file")
@@ -181,6 +256,15 @@ def main():
 
         elif cmd == "load":
             load()
+
+        elif cmd == "q" and len(args) == 1:
+            quote(args[0].upper())
+
+        elif cmd == "g" and len(args) == 1:
+            plot_yearly(args[0].upper())
+
+        elif cmd == "des" and len(args) == 1:
+            description(args[0].upper())
 
         elif cmd in ("exit", "quit"):
             print("Goodbye!")
