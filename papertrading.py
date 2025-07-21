@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 import datetime
 from tabulate import tabulate
+import os
 
 Cash = 1000000
 Tickers = [] 
@@ -54,17 +55,33 @@ def price(ticker):
         print(f"Error getting price for {ticker}: {e}")
         return None
 
+def format_amount(amount):
+    # Format with commas, no decimal if .0
+    if amount == int(amount):
+        return f"${int(amount):,}"
+    else:
+        return f"${amount:,.2f}"
+
 def buy(ticker, amount):
     global Cash, Tickers, Quantity, PurchasePrice
     p = price(ticker)
     if p is None:
         return
     if Cash >= amount:
-        Tickers.append(ticker)
-        Quantity.append(amount / p)
-        PurchasePrice.append(p)
+        if ticker in Tickers:
+            idx = Tickers.index(ticker)
+            # Weighted average price for new total quantity
+            old_qty = Quantity[idx]
+            new_qty = old_qty + (amount / p)
+            avg_price = (old_qty * PurchasePrice[idx] + (amount / p) * p) / new_qty
+            Quantity[idx] = new_qty
+            PurchasePrice[idx] = avg_price
+        else:
+            Tickers.append(ticker)
+            Quantity.append(amount / p)
+            PurchasePrice.append(p)
         Cash -= amount
-        print(f"Bought ${amount} of {ticker} @ ${p}")
+        list(f"Bought {format_amount(amount)} of {ticker} @ ${p}")
     else:
         print("Not enough cash")
 
@@ -80,22 +97,23 @@ def sell(ticker, amount):
         Quantity.pop(idx)
         Tickers.pop(idx)
         PurchasePrice.pop(idx)
-        print(f"Sold ${amount} of {ticker} @ ${price(ticker)}")
+        list(f"Sold {format_amount(amount)} of {ticker} @ ${price(ticker)}")
     else:
         Cash += amount
         Quantity[idx] -= amount/price(ticker)
-        print(f"Sold ${amount} of {ticker} @ ${price(ticker)}")
+        list(f"Sold {format_amount(amount)} of {ticker} @ ${price(ticker)}")
 
 def sellall(ticker):
     global Cash, Tickers, Quantity, PurchasePrice
     idx = Tickers.index(ticker) if ticker in Tickers else -1
     if price(ticker) is None or idx == -1:
         return
-    Cash += price(ticker)*Quantity[idx]
+    amt = price(ticker)*Quantity[idx]
+    Cash += amt
     Quantity.pop(idx)
     Tickers.pop(idx)
     PurchasePrice.pop(idx)
-    print(f"Sold all of {ticker} @ ${price(ticker)}")
+    list(f"Sold all of {ticker} @ ${price(ticker)} for {format_amount(amt)}")
 
 def short(ticker, amount):
     global Cash, Tickers, Quantity, PurchasePrice
@@ -121,7 +139,7 @@ def short(ticker, amount):
         Quantity.append(-amount / p)
         PurchasePrice.append(p)
     Cash += amount
-    print(f"Shorted ${amount} of {ticker} @ ${p}")
+    list(f"Shorted {format_amount(amount)} of {ticker} @ ${p}")
 
 def cover(ticker, amount):
     global Cash, Tickers, Quantity, PurchasePrice
@@ -141,24 +159,26 @@ def cover(ticker, amount):
                 Quantity.pop(idx)
                 Tickers.pop(idx)
                 PurchasePrice.pop(idx)
-                print(f"Covered ${amount} of {ticker} @ ${p}")
+                list(f"Covered {format_amount(amount)} of {ticker} @ ${p}")
             else:
                 Cash -= amount
                 Quantity[idx] += shares_to_cover
-                print(f"Covered ${amount} of {ticker} @ ${p}")
+                list(f"Covered {format_amount(amount)} of {ticker} @ ${p}")
         else:
             print("You do not have a short position in this ticker.")
     else:
         print("You do not have a short position in this ticker.")
 
-def list():
+def list(message=None):
     global Tickers, Quantity, PurchasePrice
+    # Clear the terminal
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(f"Cash: ${Cash:,.2f}")
     green = "\033[92m"
     red = "\033[91m"
     reset = "\033[0m"
     if not Tickers:
         print("No Positions")
-        print(f"Cash: ${Cash:,.2f}")
     else:
         prices = []
         values = []
@@ -205,7 +225,8 @@ def list():
             "P/L(%)": pl_percent
         })
         print(tabulate(df, headers='keys', tablefmt='fancy_grid', showindex=False))
-        print(f"Cash: ${Cash:,.2f}")
+        if message:
+            print(f"↳ {message}")
 
 def quote(ticker):
     p = price(ticker)
@@ -386,6 +407,18 @@ def help():
     print("EXIT - Exit the program")
     print("HELP - Show this help message")
 
+def parse_amount(s):
+    """Parse shorthand numbers like 50k, 2.5m, 100 into float values."""
+    s = s.lower().replace(',', '')
+    if s.endswith('k'):
+        return float(s[:-1]) * 1_000
+    elif s.endswith('m'):
+        return float(s[:-1]) * 1_000_000
+    elif s.endswith('b'):
+        return float(s[:-1]) * 1_000_000_000
+    else:
+        return float(s)
+
 def main():
     load()
     print("Welcome to SW paper trading system!")
@@ -400,18 +433,18 @@ def main():
         if cmd == "buy" and len(args) == 2:
             ticker = args[0].upper()
             try:
-                amount = float(args[1])
+                amount = parse_amount(args[1])
             except ValueError:
-                print("↳ Amount must be a number")
+                print("↳ Amount must be a number (e.g., 50000, 50k, 2.5m)")
                 continue
             buy(ticker, amount)
 
         elif cmd == "sell" and len(args) == 2:
             ticker = args[0].upper()
             try:
-                amount = float(args[1])
+                amount = parse_amount(args[1])
             except ValueError:
-                print("↳ Amount must be a number")
+                print("↳ Amount must be a number (e.g., 50000, 50k, 2.5m)")
                 continue
             sell(ticker, amount)
 
@@ -421,18 +454,18 @@ def main():
         elif cmd == "short" and len(args) == 2:
             ticker = args[0].upper()
             try:
-                amount = float(args[1])
+                amount = parse_amount(args[1])
             except ValueError:
-                print("↳ Amount must be a number")
+                print("↳ Amount must be a number (e.g., 50000, 50k, 2.5m)")
                 continue
             short(ticker, amount)
 
         elif cmd == "cover" and len(args) == 2:
             ticker = args[0].upper()
             try:
-                amount = float(args[1])
+                amount = parse_amount(args[1])
             except ValueError:
-                print("↳ Amount must be a number")
+                print("↳ Amount must be a number (e.g., 50000, 50k, 2.5m)")
                 continue
             cover(ticker, amount)
 
@@ -458,6 +491,7 @@ def main():
             show_financials(args[0].upper())
 
         elif cmd in ("exit", "quit"):
+            save()
             print("Goodbye!")
             break
 
