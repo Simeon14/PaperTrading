@@ -281,12 +281,98 @@ def description(ticker):
     except Exception as e:
         print(f"Error getting description for {ticker}: {e}")
 
+def show_financials(ticker):
+    import re
+    try:
+        tk = yf.Ticker(ticker)
+        # Define key metrics for each statement
+        income_keys = [
+            'Total Revenue', 'Operating Revenue', 'Gross Profit', 'Operating Income', 'Net Income',
+            'Diluted EPS', 'Basic EPS', 'EBITDA', 'EBIT'
+        ]
+        balance_keys = [
+            'Total Assets', 'Total Liabilities Net Minority Interest', 'Total Equity Gross Minority Interest',
+            'Cash And Cash Equivalents', 'Short Term Investments', 'Long Term Debt', 'Total Debt', 'Share Issued'
+        ]
+        cashflow_keys = [
+            'Operating Cash Flow', 'Investing Cash Flow', 'Financing Cash Flow', 'End Cash Position', 'Free Cash Flow'
+        ]
+        def format_millions(df, keys):
+            df = df.loc[keys]
+            df = df.iloc[:, -10:]  # Show at most last 10 periods, most recent on the right
+            # Format column headers to 'Qn YYYY'
+            def col_to_qtr_yr(col):
+                if hasattr(col, 'year') and hasattr(col, 'month'):
+                    year = col.year
+                    month = col.month
+                else:
+                    m = re.match(r"(\d{4})-(\d{2})", str(col))
+                    if m:
+                        year = int(m.group(1))
+                        month = int(m.group(2))
+                    else:
+                        return str(col)
+                q = (month - 1) // 3 + 1
+                return f"Q{q} {year}"
+            df.columns = [col_to_qtr_yr(c) for c in df.columns]
+            # Format numbers: millions, commas, no decimals, negatives as (xxx,xxx,xxx)
+            def fmt(x):
+                if pd.isnull(x):
+                    return "-"
+                x = x / 1e6
+                n = int(round(x))
+                if n < 0:
+                    return f"({abs(n):,})"
+                else:
+                    return f"{n:,}"
+            df = df.map(fmt)
+            df.index.name = None
+            return df
+        # Income Statement
+        financials = tk.financials
+        if not financials.empty:
+            available_keys = [k for k in income_keys if k in financials.index]
+            if available_keys:
+                df = format_millions(financials, available_keys)
+                print("Income Statement (USD millions):")
+                print(tabulate(df, headers='keys', tablefmt='fancy_grid', showindex=True))
+            else:
+                print("No key income statement metrics available.")
+        else:
+            print("No income statement data available.")
+        # Balance Sheet
+        balance = tk.balance_sheet
+        if not balance.empty:
+            available_keys = [k for k in balance_keys if k in balance.index]
+            if available_keys:
+                df = format_millions(balance, available_keys)
+                print("\nBalance Sheet (USD millions):")
+                print(tabulate(df, headers='keys', tablefmt='fancy_grid', showindex=True))
+            else:
+                print("No key balance sheet metrics available.")
+        else:
+            print("No balance sheet data available.")
+        # Cash Flow
+        cashflow = tk.cashflow
+        if not cashflow.empty:
+            available_keys = [k for k in cashflow_keys if k in cashflow.index]
+            if available_keys:
+                df = format_millions(cashflow, available_keys)
+                print("\nCash Flow Statement (USD millions):")
+                print(tabulate(df, headers='keys', tablefmt='fancy_grid', showindex=True))
+            else:
+                print("No key cash flow metrics available.")
+        else:
+            print("No cash flow statement data available.")
+    except Exception as e:
+        print(f"Error fetching financials for {ticker}: {e}")
+
 def help():
     print("Welcome to SW paper trading system, here are the commands:")
     print("buy (ticker) (amount) - Buy a specific amount of a ticker")
     print("sell (ticker) (amount) - Sell a specific amount of a ticker")
     print("sellall (ticker) - Sell all of a ticker")
-    print("quote (ticker) - Get current price for a ticker")
+    print("q (ticker) - Get current price for a ticker")
     print("list - List all positions")
     print("save - Save the current positions and cash to a file")
     print("load - Load the positions and cash from a file")
@@ -359,6 +445,9 @@ def main():
 
         elif cmd == "des" and len(args) == 1:
             description(args[0].upper())
+
+        elif cmd == "fa" and len(args) == 1:
+            show_financials(args[0].upper())
 
         elif cmd in ("exit", "quit"):
             print("Goodbye!")
