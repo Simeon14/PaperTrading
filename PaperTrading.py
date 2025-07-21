@@ -31,7 +31,7 @@ def load():
         if 'PurchasePrice' in df.columns:
             PurchasePrice = df['PurchasePrice'].tolist()
         else:
-            PurchasePrice = [0.0] * len(Tickers)  # default fallback
+            PurchasePrice = [0.0] * len(Tickers)
         df = pd.read_csv('cash.csv')
         Cash = float(df.loc[0, 'Cash'])
         print("Loaded data from file.")
@@ -131,6 +131,16 @@ def list():
         })
         print(df.to_string(index=False))
 
+def help():
+    print("Welcome to SW paper trading system, here are the commands:")
+    print("buy (ticker) (amount) - Buy a specific amount of a ticker")
+    print("sell (ticker) (amount) - Sell a specific amount of a ticker")
+    print("sellall (ticker) - Sell all of a ticker")
+    print("list - List all positions")
+    print("save - Save the current positions and cash to a file")
+    print("load - Load the positions and cash from a file")
+    print("exit - Exit the program")
+
 def main():
     load()
     print("Welcome to SW paper trading system!")
@@ -177,7 +187,7 @@ def main():
             break
 
         elif cmd == "help":
-            print("Commands: buy TICKER AMOUNT | sell TICKER AMOUNT | sellall TICKER | list | save | load | exit")
+            help()
 
         else:
             print("Unknown command or wrong args. Type one of:")
