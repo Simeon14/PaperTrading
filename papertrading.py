@@ -419,6 +419,156 @@ def parse_amount(s):
     else:
         return float(s)
 
+class PaperTradingAccount:
+    def __init__(self):
+        self.Cash = 1000000
+        self.Tickers = []
+        self.Quantity = []
+        self.PurchasePrice = []
+
+    def save(self):
+        df = pd.DataFrame({
+            'Ticker': self.Tickers,
+            'Quantity': self.Quantity,
+            'PurchasePrice': self.PurchasePrice
+        })
+        df.to_csv('positions.csv', index=False)
+        pd.DataFrame({'Cash': [self.Cash]}).to_csv('cash.csv', index=False)
+
+    def load(self):
+        try:
+            df = pd.read_csv('positions.csv')
+            self.Tickers = df['Ticker'].tolist()
+            self.Quantity = df['Quantity'].tolist()
+            if 'PurchasePrice' in df.columns:
+                self.PurchasePrice = df['PurchasePrice'].tolist()
+            else:
+                self.PurchasePrice = [0.0] * len(self.Tickers)
+            df = pd.read_csv('cash.csv')
+            self.Cash = float(df.loc[0, 'Cash'])
+        except FileNotFoundError:
+            self.Tickers = []
+            self.Quantity = []
+            self.PurchasePrice = []
+            self.Cash = 1000000
+
+    def price(self, ticker):
+        try:
+            tk = yf.Ticker(ticker)
+            hist = tk.history(period='1d', interval='1m')
+            if hist.empty:
+                raise ValueError(f"No price data found for {ticker}")
+            return hist['Close'].iloc[-1]
+        except Exception as e:
+            return None
+
+    def buy(self, ticker, amount):
+        p = self.price(ticker)
+        if p is None:
+            return False, f"No price data for {ticker}"
+        if self.Cash >= amount:
+            if ticker in self.Tickers:
+                idx = self.Tickers.index(ticker)
+                old_qty = self.Quantity[idx]
+                new_qty = old_qty + (amount / p)
+                avg_price = (old_qty * self.PurchasePrice[idx] + (amount / p) * p) / new_qty
+                self.Quantity[idx] = new_qty
+                self.PurchasePrice[idx] = avg_price
+            else:
+                self.Tickers.append(ticker)
+                self.Quantity.append(amount / p)
+                self.PurchasePrice.append(p)
+            self.Cash -= amount
+            return True, f"Bought {format_amount(amount)} of {ticker} @ ${p}"
+        else:
+            return False, "Not enough cash"
+
+    def sell(self, ticker, amount):
+        idx = self.Tickers.index(ticker) if ticker in self.Tickers else -1
+        p = self.price(ticker)
+        if p is None or idx == -1:
+            return False, f"No position or price for {ticker}"
+        if amount > p * self.Quantity[idx]:
+            return False, "Not enough shares"
+        elif amount == p * self.Quantity[idx]:
+            self.Cash += amount
+            self.Quantity.pop(idx)
+            self.Tickers.pop(idx)
+            self.PurchasePrice.pop(idx)
+            return True, f"Sold {format_amount(amount)} of {ticker} @ ${p}"
+        else:
+            self.Cash += amount
+            self.Quantity[idx] -= amount / p
+            return True, f"Sold {format_amount(amount)} of {ticker} @ ${p}"
+
+    def sellall(self, ticker):
+        idx = self.Tickers.index(ticker) if ticker in self.Tickers else -1
+        p = self.price(ticker)
+        if p is None or idx == -1:
+            return False, f"No position or price for {ticker}"
+        amt = p * self.Quantity[idx]
+        self.Cash += amt
+        self.Quantity.pop(idx)
+        self.Tickers.pop(idx)
+        self.PurchasePrice.pop(idx)
+        return True, f"Sold all of {ticker} @ ${p} for {format_amount(amt)}"
+
+    def short(self, ticker, amount):
+        p = self.price(ticker)
+        if p is None:
+            return False, f"No price data for {ticker}"
+        if ticker in self.Tickers:
+            idx = self.Tickers.index(ticker)
+            if self.Quantity[idx] < 0:
+                total_shares = abs(self.Quantity[idx]) + (amount / p)
+                avg_price = (abs(self.Quantity[idx]) * self.PurchasePrice[idx] + (amount / p) * p) / total_shares
+                self.Quantity[idx] -= amount / p
+                self.PurchasePrice[idx] = avg_price
+            elif self.Quantity[idx] > 0:
+                return False, "You must close your long position before shorting."
+        else:
+            self.Tickers.append(ticker)
+            self.Quantity.append(-amount / p)
+            self.PurchasePrice.append(p)
+        self.Cash += amount
+        return True, f"Shorted {format_amount(amount)} of {ticker} @ ${p}"
+
+    def cover(self, ticker, amount):
+        p = self.price(ticker)
+        if p is None:
+            return False, f"No price data for {ticker}"
+        if ticker in self.Tickers:
+            idx = self.Tickers.index(ticker)
+            if self.Quantity[idx] < 0:
+                shares_to_cover = amount / p
+                if abs(self.Quantity[idx]) < shares_to_cover:
+                    return False, "Not enough shorted shares to cover that amount."
+                if abs(self.Quantity[idx]) == shares_to_cover:
+                    self.Cash -= amount
+                    self.Quantity.pop(idx)
+                    self.Tickers.pop(idx)
+                    self.PurchasePrice.pop(idx)
+                    return True, f"Covered {format_amount(amount)} of {ticker} @ ${p}"
+                else:
+                    self.Cash -= amount
+                    self.Quantity[idx] += shares_to_cover
+                    return True, f"Covered {format_amount(amount)} of {ticker} @ ${p}"
+            else:
+                return False, "You do not have a short position in this ticker."
+        else:
+            return False, "You do not have a short position in this ticker."
+
+    def get_portfolio(self):
+        # Returns a DataFrame for display
+        return pd.DataFrame({
+            'Ticker': self.Tickers,
+            'Quantity': self.Quantity,
+            'PurchasePrice': self.PurchasePrice
+        })
+
+    def get_cash(self):
+        return self.Cash
+
 def main():
     load()
     print("Welcome to SW paper trading system!")
