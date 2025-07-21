@@ -7,46 +7,71 @@ import datetime
 Cash = 100000
 Tickers = [] 
 Quantity = []
+PurchasePrice = []
+PL = []
+PLPercent = []
 
 def save():
-    global Tickers, Quantity, Cash
-    df = pd.DataFrame({'Ticker': Tickers, 'Quantity': Quantity})
+    global Tickers, Quantity, PurchasePrice, Cash
+    df = pd.DataFrame({
+        'Ticker': Tickers,
+        'Quantity': Quantity,
+        'PurchasePrice': PurchasePrice
+    })
     df.to_csv('positions.csv', index=False)
     pd.DataFrame({'Cash': [Cash]}).to_csv('cash.csv', index=False)
+    print("Data saved successfully.")
 
 def load():
-    global Tickers, Quantity, Cash
+    global Tickers, Quantity, PurchasePrice, Cash
     try:
         df = pd.read_csv('positions.csv')
         Tickers = df['Ticker'].tolist()
         Quantity = df['Quantity'].tolist()
+        if 'PurchasePrice' in df.columns:
+            PurchasePrice = df['PurchasePrice'].tolist()
+        else:
+            PurchasePrice = [0.0] * len(Tickers)  # default fallback
         df = pd.read_csv('cash.csv')
         Cash = float(df.loc[0, 'Cash'])
+        print("Loaded data from file.")
     except FileNotFoundError:
         Tickers = []
         Quantity = []
+        PurchasePrice = []
         Cash = 100000
+        print("No data found. Starting with default values.")
 
 
 def price(ticker):
-    tk   = yf.Ticker(ticker)
-    hist = tk.history(period='1d', interval='1m')
-    if hist.empty:
-        raise ValueError(f"No intraday data for {ticker}")
-    return hist['Close'].iloc[-1]
+    try:
+        tk   = yf.Ticker(ticker)
+        hist = tk.history(period='1d', interval='1m')
+        if hist.empty:
+            raise ValueError(f"No price data found for {ticker}")
+        return hist['Close'].iloc[-1]
+    except Exception as e:
+        print(f"Error getting price for {ticker}: {e}")
+        return None
 
 def buy(ticker, amount):
-    global Cash, Tickers, Quantity
+    global Cash, Tickers, Quantity, PurchasePrice
+    p = price(ticker)
+    if p is None:
+        return
     if Cash >= amount:
         Tickers.append(ticker)
-        Quantity.append(amount/price(ticker))
+        Quantity.append(amount / p)
+        PurchasePrice.append(p)
         Cash -= amount
-        print(f"Bought ${amount} of {ticker} @ ${price(ticker)}")
+        print(f"Bought ${amount} of {ticker} @ ${p}")
     else:
         print("Not enough cash")
 
 def sell(ticker, amount):
     global Cash, Tickers, Quantity
+    if price(ticker) is None:
+        return
     if ticker in Tickers:
         if amount > price(ticker)*Quantity[Tickers.index(ticker)]:
             print("Not enough shares")
@@ -62,6 +87,8 @@ def sell(ticker, amount):
 
 def sellall(ticker):
     global Cash, Tickers, Quantity
+    if price(ticker) is None:
+        return
     if ticker in Tickers:
         Cash += price(ticker)*Quantity[Tickers.index(ticker)]
         Quantity.pop(Tickers.index(ticker))
@@ -69,6 +96,40 @@ def sellall(ticker):
         print(f"Sold all of {ticker} @ ${price(ticker)}")
     else:
         print("You don't have any shares of that ticker")
+
+def list():
+    global Tickers, Quantity, PurchasePrice
+    print(f"Cash: ${Cash:,.2f}")
+    if not Tickers:
+        print("↳ (no positions)")
+    else:
+        prices = []
+        values = []
+        pl_dollars = []
+        pl_percent = []
+        for ticker, qty, buy_price in zip(Tickers, Quantity, PurchasePrice):
+            p = price(ticker)
+            if p is None:
+                prices.append("N/A")
+                values.append("N/A")
+                pl_dollars.append("N/A")
+                pl_percent.append("N/A")
+            else:
+                prices.append(f"${p:,.2f}")
+                value = p * qty
+                values.append(f"${value:,.2f}")
+                pl = value - (buy_price * qty)
+                pl_pct = (pl / (buy_price * qty)) * 100
+                pl_dollars.append(f"${pl:,.2f}")
+                pl_percent.append(f"{pl_pct:.2f}%")
+        df = pd.DataFrame({
+            "Ticker": Tickers,
+            "Price": prices,
+            "Value": values,
+            "P/L($)": pl_dollars,
+            "P/L(%)": pl_percent
+        })
+        print(df.to_string(index=False))
 
 def main():
     load()
@@ -103,19 +164,7 @@ def main():
             sellall(args[0].upper())
 
         elif cmd == "list":
-            print(f"Cash: ${Cash:,.2f}")
-            if not Tickers:
-                print("↳ (no positions)")
-            else:
-                prices = []
-                for ticker, qty in zip(Tickers, Quantity):
-                    v = price(ticker)
-                    prices.append(f"${v:,.2f}")
-                df = pd.DataFrame({
-                    "Ticker": Tickers,
-                    "Price": prices
-                })
-                print(df.to_string(index=False))
+            list()
 
         elif cmd == "save":
             save()
