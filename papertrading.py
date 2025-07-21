@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import yfinance as yf
 import datetime
+from tabulate import tabulate
 
 Cash = 1000000
 Tickers = [] 
@@ -68,36 +69,93 @@ def buy(ticker, amount):
         print("Not enough cash")
 
 def sell(ticker, amount):
-    global Cash, Tickers, Quantity
-    if price(ticker) is None:
+    global Cash, Tickers, Quantity, PurchasePrice
+    idx = Tickers.index(ticker) if ticker in Tickers else -1
+    if price(ticker) is None or idx == -1:
         return
-    if ticker in Tickers:
-        if amount > price(ticker)*Quantity[Tickers.index(ticker)]:
-            print("Not enough shares")
-        elif amount == price(ticker)*Quantity[Tickers.index(ticker)]:
-            Cash += amount
-            Quantity.pop(Tickers.index(ticker))
-            Tickers.pop(Tickers.index(ticker))
-            print(f"Sold ${amount} of {ticker} @ ${price(ticker)}")
-        else:
-            Cash += amount
-            Quantity[Tickers.index(ticker)] -= amount/price(ticker)
-            print(f"Sold ${amount} of {ticker} @ ${price(ticker)}")
+    if amount > price(ticker)*Quantity[idx]:
+        print("Not enough shares")
+    elif amount == price(ticker)*Quantity[idx]:
+        Cash += amount
+        Quantity.pop(idx)
+        Tickers.pop(idx)
+        PurchasePrice.pop(idx)
+        print(f"Sold ${amount} of {ticker} @ ${price(ticker)}")
+    else:
+        Cash += amount
+        Quantity[idx] -= amount/price(ticker)
+        print(f"Sold ${amount} of {ticker} @ ${price(ticker)}")
 
 def sellall(ticker):
-    global Cash, Tickers, Quantity
-    if price(ticker) is None:
+    global Cash, Tickers, Quantity, PurchasePrice
+    idx = Tickers.index(ticker) if ticker in Tickers else -1
+    if price(ticker) is None or idx == -1:
+        return
+    Cash += price(ticker)*Quantity[idx]
+    Quantity.pop(idx)
+    Tickers.pop(idx)
+    PurchasePrice.pop(idx)
+    print(f"Sold all of {ticker} @ ${price(ticker)}")
+
+def short(ticker, amount):
+    global Cash, Tickers, Quantity, PurchasePrice
+    p = price(ticker)
+    if p is None:
+        return
+    # Short selling: open or increase a short position
+    if ticker in Tickers:
+        idx = Tickers.index(ticker)
+        # If already short, increase short position
+        if Quantity[idx] < 0:
+            # Weighted average price for short
+            total_shares = abs(Quantity[idx]) + (amount / p)
+            avg_price = (abs(Quantity[idx]) * PurchasePrice[idx] + (amount / p) * p) / total_shares
+            Quantity[idx] -= amount / p
+            PurchasePrice[idx] = avg_price
+        # If currently long, treat as a new short (not allowed in real world, but for simplicity, force close long then open short)
+        elif Quantity[idx] > 0:
+            print("You must close your long position before shorting.")
+            return
+    else:
+        Tickers.append(ticker)
+        Quantity.append(-amount / p)
+        PurchasePrice.append(p)
+    Cash += amount
+    print(f"Shorted ${amount} of {ticker} @ ${p}")
+
+def cover(ticker, amount):
+    global Cash, Tickers, Quantity, PurchasePrice
+    p = price(ticker)
+    if p is None:
         return
     if ticker in Tickers:
-        Cash += price(ticker)*Quantity[Tickers.index(ticker)]
-        Quantity.pop(Tickers.index(ticker))
-        Tickers.pop(Tickers.index(ticker))
-        print(f"Sold all of {ticker} @ ${price(ticker)}")
+        idx = Tickers.index(ticker)
+        if Quantity[idx] < 0:
+            shares_to_cover = amount / p
+            if abs(Quantity[idx]) < shares_to_cover:
+                print("Not enough shorted shares to cover that amount.")
+                return
+            # If covering all
+            if abs(Quantity[idx]) == shares_to_cover:
+                Cash -= amount
+                Quantity.pop(idx)
+                Tickers.pop(idx)
+                PurchasePrice.pop(idx)
+                print(f"Covered ${amount} of {ticker} @ ${p}")
+            else:
+                Cash -= amount
+                Quantity[idx] += shares_to_cover
+                print(f"Covered ${amount} of {ticker} @ ${p}")
+        else:
+            print("You do not have a short position in this ticker.")
     else:
-        print("You don't have any shares of that ticker")
+        print("You do not have a short position in this ticker.")
 
 def list():
     global Tickers, Quantity, PurchasePrice
+    green = "\033[92m"
+    red = "\033[91m"
+    reset = "\033[0m"
     print(f"Cash: ${Cash:,.2f}")
     if not Tickers:
         print("↳ (no positions)")
@@ -106,29 +164,47 @@ def list():
         values = []
         pl_dollars = []
         pl_percent = []
+        pos_type = []
+        qtys = []
         for ticker, qty, buy_price in zip(Tickers, Quantity, PurchasePrice):
             p = price(ticker)
+            qtys.append(qty)
             if p is None:
                 prices.append("N/A")
                 values.append("N/A")
                 pl_dollars.append("N/A")
                 pl_percent.append("N/A")
+                pos_type.append("")
             else:
                 prices.append(f"${p:,.2f}")
-                value = p * qty
-                values.append(f"${value:,.2f}")
-                pl = value - (buy_price * qty)
-                pl_pct = (pl / (buy_price * qty)) * 100
+                value = p * abs(qty)
+                if qty > 0:
+                    values.append(f"${value:,.2f}")
+                    pl = value - (buy_price * qty)
+                    pl_pct = (pl / (buy_price * qty)) * 100
+                    pos_type.append(f"{green}LONG{reset}")
+                elif qty < 0:
+                    values.append(f"-${value:,.2f}")
+                    pl = (buy_price - p) * abs(qty)
+                    pl_pct = (pl / (buy_price * abs(qty))) * 100 if buy_price != 0 else 0
+                    pos_type.append(f"{red}SHORT{reset}")
+                else:
+                    values.append(f"${value:,.2f}")
+                    pl = 0
+                    pl_pct = 0
+                    pos_type.append("")
                 pl_dollars.append(f"${pl:,.2f}")
                 pl_percent.append(f"{pl_pct:.2f}%")
         df = pd.DataFrame({
             "Ticker": Tickers,
+            "Type": pos_type,
+            "Quantity": qtys,
             "Price": prices,
             "Value": values,
             "P/L($)": pl_dollars,
             "P/L(%)": pl_percent
         })
-        print(df.to_string(index=False))
+        print(tabulate(df, headers='keys', tablefmt='fancy_grid', showindex=False))
 
 def quote(ticker):
     p = price(ticker)
@@ -248,6 +324,24 @@ def main():
         elif cmd == "sellall" and len(args) == 1:
             sellall(args[0].upper())
 
+        elif cmd == "short" and len(args) == 2:
+            ticker = args[0].upper()
+            try:
+                amount = float(args[1])
+            except ValueError:
+                print("↳ Amount must be a number")
+                continue
+            short(ticker, amount)
+
+        elif cmd == "cover" and len(args) == 2:
+            ticker = args[0].upper()
+            try:
+                amount = float(args[1])
+            except ValueError:
+                print("↳ Amount must be a number")
+                continue
+            cover(ticker, amount)
+
         elif cmd == "list":
             list()
 
@@ -278,6 +372,8 @@ def main():
             print("  buy TICKER AMOUNT")
             print("  sell TICKER AMOUNT")
             print("  sellall TICKER")
+            print("  short TICKER AMOUNT")
+            print("  cover TICKER AMOUNT")
             print("  list")
             print("  save")
             print("  load")
