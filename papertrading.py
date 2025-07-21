@@ -299,7 +299,8 @@ def show_financials(ticker):
         ]
         def format_millions(df, keys):
             df = df.loc[keys]
-            df = df.iloc[:, -10:]  # Show at most last 10 periods, most recent on the right
+            df = df.iloc[:, -10:]  # Get at most last 10 periods (most recent on the right)
+            df = df.iloc[:, ::-1]  # Reverse columns so oldest is on the left, most recent on the right
             # Format column headers to 'Qn YYYY'
             def col_to_qtr_yr(col):
                 if hasattr(col, 'year') and hasattr(col, 'month'):
@@ -328,37 +329,37 @@ def show_financials(ticker):
             df = df.map(fmt)
             df.index.name = None
             return df
-        # Income Statement
-        financials = tk.financials
+        # Income Statement (Quarterly)
+        financials = tk.quarterly_financials
         if not financials.empty:
             available_keys = [k for k in income_keys if k in financials.index]
             if available_keys:
                 df = format_millions(financials, available_keys)
-                print("Income Statement (USD millions):")
+                print("Income Statement (USD millions, Quarterly):")
                 print(tabulate(df, headers='keys', tablefmt='fancy_grid', showindex=True))
             else:
                 print("No key income statement metrics available.")
         else:
             print("No income statement data available.")
-        # Balance Sheet
-        balance = tk.balance_sheet
+        # Balance Sheet (Quarterly)
+        balance = tk.quarterly_balance_sheet
         if not balance.empty:
             available_keys = [k for k in balance_keys if k in balance.index]
             if available_keys:
                 df = format_millions(balance, available_keys)
-                print("\nBalance Sheet (USD millions):")
+                print("\nBalance Sheet (USD millions, Quarterly):")
                 print(tabulate(df, headers='keys', tablefmt='fancy_grid', showindex=True))
             else:
                 print("No key balance sheet metrics available.")
         else:
             print("No balance sheet data available.")
-        # Cash Flow
-        cashflow = tk.cashflow
+        # Cash Flow (Quarterly)
+        cashflow = tk.quarterly_cashflow
         if not cashflow.empty:
             available_keys = [k for k in cashflow_keys if k in cashflow.index]
             if available_keys:
                 df = format_millions(cashflow, available_keys)
-                print("\nCash Flow Statement (USD millions):")
+                print("\nCash Flow Statement (USD millions, Quarterly):")
                 print(tabulate(df, headers='keys', tablefmt='fancy_grid', showindex=True))
             else:
                 print("No key cash flow metrics available.")
@@ -369,14 +370,20 @@ def show_financials(ticker):
 
 def help():
     print("Welcome to SW paper trading system, here are the commands:")
-    print("buy (ticker) (amount) - Buy a specific amount of a ticker")
-    print("sell (ticker) (amount) - Sell a specific amount of a ticker")
-    print("sellall (ticker) - Sell all of a ticker")
-    print("q (ticker) - Get current price for a ticker")
-    print("list - List all positions")
-    print("save - Save the current positions and cash to a file")
-    print("load - Load the positions and cash from a file")
-    print("exit - Exit the program")
+    print("BUY (ticker) (amount) - Buy a specific amount of a ticker")
+    print("SELL (ticker) (amount) - Sell a specific amount of a ticker")
+    print("SELLALL (ticker) - Sell all of a ticker")
+    print("SHORT (ticker) (amount) - Short sell a specific amount of a ticker")
+    print("COVER (ticker) (amount) - Cover a specific amount of a short position")
+    print("LIST - List all positions")
+    print("SAVE - Save the current positions and cash to a file")
+    print("LOAD - Load the positions and cash from a file")
+    print("Q (ticker) - Get current price for a ticker")
+    print("G (ticker) - Show a graph of the last year's price for a ticker")
+    print("DES (ticker) - Show a description of a ticker")
+    print("FA (ticker) - Show financial statement data for a ticker (quarterly)")
+    print("EXIT - Exit the program")
+    print("HELP - Show this help message")
 
 def main():
     load()
@@ -457,16 +464,21 @@ def main():
             help()
 
         else:
-            print("Unknown command or wrong args. Type one of:")
-            print("  buy TICKER AMOUNT")
-            print("  sell TICKER AMOUNT")
-            print("  sellall TICKER")
-            print("  short TICKER AMOUNT")
-            print("  cover TICKER AMOUNT")
-            print("  list")
-            print("  save")
-            print("  load")
-            print("  exit")
+            print("Unknown command or wrong args. Here are the available commands:")
+            print("BUY (ticker) (amount) - Buy a specific amount of a ticker")
+            print("SELL (ticker) (amount) - Sell a specific amount of a ticker")
+            print("SELLALL (ticker) - Sell all of a ticker")
+            print("SHORT (ticker) (amount) - Short sell a specific amount of a ticker")
+            print("COVER (ticker) (amount) - Cover a specific amount of a short position")
+            print("LIST - List all positions")
+            print("SAVE - Save the current positions and cash to a file")
+            print("LOAD - Load the positions and cash from a file")
+            print("Q (ticker) - Get current price for a ticker")
+            print("G (ticker) - Show a graph of the last year's price for a ticker")
+            print("DES (ticker) - Show a description of a ticker")
+            print("FA (ticker) - Show financial statement data for a ticker (quarterly)")
+            print("EXIT - Exit the program")
+            print("HELP - Show this help message")
 
 if __name__ == "__main__":
     main()
