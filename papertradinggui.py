@@ -48,6 +48,7 @@ class PaperTradingApp:
         self.print_welcome()
         self.refresh_portfolio()
         self.start_price_thread()
+        self.schedule_ui_refresh()  # Add this line to start periodic UI refresh
 
     def start_price_thread(self):
         def price_updater():
@@ -64,12 +65,16 @@ class PaperTradingApp:
                                     price = data['Close'].iloc[-1]
                                 else:
                                     price = data[ticker]['Close'].iloc[-1]
-                                self.latest_prices[ticker] = price
+                                # Only update if price is not None and not NaN
+                                if price is not None and not (isinstance(price, float) and (pd.isna(price) or (hasattr(pd, 'isnull') and pd.isnull(price)))):
+                                    self.latest_prices[ticker] = price
+                                # else: do not update, keep previous price
                             except Exception:
-                                self.latest_prices[ticker] = None
+                                # Do not overwrite previous price if error
+                                pass
                     except Exception:
-                        for ticker in tickers:
-                            self.latest_prices[ticker] = None
+                        # Do not overwrite previous prices if error
+                        pass
                 time.sleep(5)
         threading.Thread(target=price_updater, daemon=True).start()
 
@@ -110,9 +115,9 @@ class PaperTradingApp:
             self.tree.heading(col, text=col, command=lambda _col=col: self.sort_by_column(_col))
             self.tree.column(col, anchor='center', width=140, minwidth=80, stretch=True)
         self.tree.pack(fill='x', expand=True, padx=10, pady=10)
-        # Zebra striping
-        self.tree.tag_configure('oddrow', background='#202225')
-        self.tree.tag_configure('evenrow', background='#181a1b')
+        # Zebra striping (remove these lines)
+        # self.tree.tag_configure('oddrow', background='#202225')
+        # self.tree.tag_configure('evenrow', background='#181a1b')
         self.tree.tag_configure('pl_positive', foreground=GREEN)
         self.tree.tag_configure('pl_negative', foreground=RED)
         self.tree.tag_configure('pl_neutral', foreground=DARK_FG)
@@ -168,7 +173,7 @@ class PaperTradingApp:
         total_invested = 0
         for ticker, qty, buy_price in zip(tickers, qtys, self.account.PurchasePrice):
             p = self.get_price(ticker)
-            if p is None:
+            if p is None or (isinstance(p, float) and (pd.isna(p) or (hasattr(pd, 'isnull') and pd.isnull(p)))):
                 prices.append('N/A')
                 values.append('N/A')
                 pl_dollars.append('N/A')
@@ -203,9 +208,8 @@ class PaperTradingApp:
         for i in range(len(tickers)):
             avg_cost = self.account.PurchasePrice[i]
             avg_cost_str = f"${avg_cost:,.2f}" if avg_cost is not None else 'N/A'
-            # Zebra striping and P/L coloring
+            # Remove zebra striping, only use P/L coloring
             row_tags = []
-            row_tags.append('evenrow' if i % 2 == 0 else 'oddrow')
             # Color P/L column
             pl_val = pl_dollars[i]
             if isinstance(pl_val, str) and pl_val.startswith('$'):
@@ -480,7 +484,9 @@ class PaperTradingApp:
         except Exception as e:
             self.print_output(f"Error fetching financials for {ticker}: {e}", error=True)
 
-    # schedule_price_update removed: now handled by background thread
+    def schedule_ui_refresh(self):
+        self.refresh_portfolio()
+        self.root.after(5000, self.schedule_ui_refresh)
 
     def sort_by_column(self, col, force_desc=None, remember=True):
         # Get all items from the treeview
