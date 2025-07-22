@@ -81,7 +81,7 @@ class PaperTradingApp:
 
         tree_frame = tk.Frame(self.root, bg=DARK_BG)
         tree_frame.pack(padx=10, pady=(0, 2), fill='x')
-        self.tree = ttk.Treeview(tree_frame, columns=('Ticker', 'Type', 'Quantity', 'Purchase Price', 'Price', 'Value', 'P/L($)', 'P/L(%)'), show='headings', height=10)
+        self.tree = ttk.Treeview(tree_frame, columns=('Ticker', 'Type', 'Quantity', 'Average Cost', 'Price', 'Value', 'P/L($)', 'P/L(%)'), show='headings', height=10)
         self._sort_orders = {col: False for col in self.tree['columns']}  # False: ascending, True: descending
         for col in self.tree['columns']:
             self.tree.heading(col, text=col, command=lambda _col=col: self.sort_by_column(_col))
@@ -129,7 +129,7 @@ class PaperTradingApp:
         pl_dollars = []
         pl_percent = []
         type_display = []
-        total_pl = 0
+        total_unrealized_pl = 0
         total_invested = 0
         for ticker, qty, buy_price in zip(tickers, qtys, self.account.PurchasePrice):
             p = self.get_price(ticker)
@@ -146,14 +146,14 @@ class PaperTradingApp:
                     values.append(f"${value:,.2f}")
                     pl = value - (buy_price * qty)
                     pl_pct = (pl / (buy_price * qty)) * 100
-                    total_pl += pl
+                    total_unrealized_pl += pl
                     total_invested += buy_price * qty
                     type_display.append('🟢 long')
                 elif qty < 0:
                     values.append(f"-${value:,.2f}")
                     pl = (buy_price - p) * abs(qty)
                     pl_pct = (pl / (buy_price * abs(qty))) * 100 if buy_price != 0 else 0
-                    total_pl += pl
+                    total_unrealized_pl += pl
                     total_invested += buy_price * abs(qty)
                     type_display.append('🔴 short')
                 else:
@@ -163,19 +163,21 @@ class PaperTradingApp:
                     type_display.append('')
                 pl_dollars.append(f"${pl:,.2f}")
                 pl_percent.append(f"{pl_pct:.2f}%")
+        realized_pl = self.account.get_realized_pl()
+        overall_pl = total_unrealized_pl + realized_pl
         for i in range(len(tickers)):
-            purchase_price = self.account.PurchasePrice[i]
-            purchase_price_str = f"${purchase_price:,.2f}" if purchase_price is not None else 'N/A'
-            self.tree.insert('', 'end', values=(tickers[i], type_display[i], f"{qtys[i]:.4f}", purchase_price_str, prices[i], values[i], pl_dollars[i], pl_percent[i]))
+            avg_cost = self.account.PurchasePrice[i]
+            avg_cost_str = f"${avg_cost:,.2f}" if avg_cost is not None else 'N/A'
+            self.tree.insert('', 'end', values=(tickers[i], type_display[i], f"{qtys[i]:.4f}", avg_cost_str, prices[i], values[i], pl_dollars[i], pl_percent[i]))
         self.cash_var.set(f"Cash: ${self.account.get_cash():,.2f}")
         # Overall P/L display
         if total_invested > 0:
-            pl_pct = (total_pl / total_invested) * 100
+            pl_pct = (total_unrealized_pl / total_invested) * 100
         else:
             pl_pct = 0
-        pl_color = GREEN if total_pl > 0 else RED if total_pl < 0 else DARK_FG
+        pl_color = GREEN if total_unrealized_pl > 0 else RED if total_unrealized_pl < 0 else DARK_FG
         self.pl_label.config(fg=pl_color)
-        self.pl_var.set(f"Overall P/L: ${total_pl:,.2f}  ({pl_pct:+.2f}%)")
+        self.pl_var.set(f"Unrealized P/L: ${total_unrealized_pl:,.2f}  ({pl_pct:+.2f}%)\nRealized P/L: ${realized_pl:,.2f}")
 
     def process_command(self, event=None):
         # Clear output area before showing new command output
