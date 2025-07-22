@@ -8,6 +8,7 @@ import threading
 import io
 import sys
 import time
+import os
 
 DARK_BG = '#181a1b'  # Even darker background
 DARK_FG = '#f8f8f2'
@@ -15,18 +16,35 @@ DARK_ENTRY = '#23272e'
 DARK_ACCENT = '#222326'
 GREEN = '#50fa7b'
 RED = '#ff5555'
-FONT = ('Consolas', 11)
+ACCENT = '#4fa3ff'
+FONT_SANS = ('Segoe UI', 12)
+HEADER_FONT = ('Segoe UI', 13, 'bold')
+MONO_FONT = ('Consolas', 12)
 
 class PaperTradingApp:
     def __init__(self, root):
         self.root = root
-        self.root.title('Paper Trading GUI')
+        self.root.title('SW Paper Trading Dashboard')
         self.root.configure(bg=DARK_BG)
+        self.root.geometry('1800x1200')
+        self.root.minsize(1200, 800)
+        # To use a custom icon, place 'icon.ico' in the project directory
+        icon_path = os.path.join(os.path.dirname(__file__), 'icon.ico')
+        if os.path.exists(icon_path):
+            try:
+                self.root.iconbitmap(icon_path)
+            except Exception:
+                pass
         self.account = PaperTradingAccount()
         self.account.load()
         self.latest_prices = {}  # Cache for latest prices
         self.price_thread_running = True
+        self._last_sorted_col = None
+        self._last_sort_desc = False
         self.create_widgets()
+        # Bind ~ and ` keys globally to focus input after widgets are created
+        self.root.bind_all('<KeyRelease-asciitilde>', lambda event: self.input_entry.focus_set())
+        self.root.bind_all('<KeyRelease-grave>', lambda event: self.input_entry.focus_set())
         self.print_welcome()
         self.refresh_portfolio()
         self.start_price_thread()
@@ -64,51 +82,65 @@ class PaperTradingApp:
 
     def create_widgets(self):
         # Output area (read-only)
-        self.output = tk.Text(self.root, height=18, bg=DARK_BG, fg=DARK_FG, insertbackground=DARK_FG, font=FONT, wrap='word', state='disabled', borderwidth=0)
-        self.output.pack(padx=10, pady=(10, 2), fill='both', expand=True)
+        output_frame = tk.Frame(self.root, bg=DARK_BG)
+        output_frame.pack(padx=20, pady=(30, 18), fill='both', expand=True)
+        self.output = tk.Text(output_frame, height=24, bg='#000000', fg=DARK_FG, insertbackground=DARK_FG, font=MONO_FONT, wrap='word', state='disabled', borderwidth=2, relief='groove', highlightthickness=2, highlightbackground='#23272e')
+        self.output.pack(padx=10, pady=10, fill='both', expand=True)
 
         # Portfolio table (Treeview)
         style = ttk.Style()
-        style.theme_use('default')
+        style.theme_use('clam')
         style.configure('Treeview',
                         background=DARK_BG,
                         foreground=DARK_FG,
                         fieldbackground=DARK_BG,
-                        rowheight=24,
-                        font=FONT)
-        style.configure('Treeview.Heading', background=DARK_ACCENT, foreground=DARK_FG, font=(FONT[0], FONT[1], 'bold'))
+                        rowheight=32,
+                        font=FONT_SANS,
+                        borderwidth=0)
+        style.configure('Treeview.Heading', background='#23272e', foreground=ACCENT, font=HEADER_FONT, borderwidth=0)
         style.map('Treeview', background=[('selected', DARK_ACCENT)])
+        style.layout('Treeview', [('Treeview.treearea', {'sticky': 'nswe'})])
+        style.configure('Treeview', borderwidth=0, relief='flat')
 
         tree_frame = tk.Frame(self.root, bg=DARK_BG)
-        tree_frame.pack(padx=10, pady=(0, 2), fill='x')
-        self.tree = ttk.Treeview(tree_frame, columns=('Ticker', 'Type', 'Quantity', 'Average Cost', 'Price', 'Value', 'P/L($)', 'P/L(%)'), show='headings', height=10)
+        tree_frame.pack(padx=20, pady=(0, 18), fill='x')
+        self.tree = ttk.Treeview(tree_frame, columns=('Ticker', 'Type', 'Quantity', 'Average Cost', 'Price', 'Value', 'P/L($)', 'P/L(%)'), show='headings', height=15, selectmode='browse')
         self._sort_orders = {col: False for col in self.tree['columns']}  # False: ascending, True: descending
         for col in self.tree['columns']:
             self.tree.heading(col, text=col, command=lambda _col=col: self.sort_by_column(_col))
-            self.tree.column(col, anchor='center', width=100)
-        self.tree.pack(fill='x', expand=True)
+            self.tree.column(col, anchor='center', width=140, minwidth=80, stretch=True)
+        self.tree.pack(fill='x', expand=True, padx=10, pady=10)
+        # Zebra striping
+        self.tree.tag_configure('oddrow', background='#202225')
+        self.tree.tag_configure('evenrow', background='#181a1b')
+        self.tree.tag_configure('pl_positive', foreground=GREEN)
+        self.tree.tag_configure('pl_negative', foreground=RED)
+        self.tree.tag_configure('pl_neutral', foreground=DARK_FG)
 
         # Cash label
         self.cash_var = tk.StringVar()
-        self.cash_label = tk.Label(self.root, textvariable=self.cash_var, font=('Consolas', 12, 'bold'), bg=DARK_BG, fg=GREEN)
+        self.cash_label = tk.Label(self.root, textvariable=self.cash_var, font=HEADER_FONT, bg=DARK_BG, fg=GREEN, pady=8)
         self.cash_label.pack(pady=(0, 0))
 
         # Overall P/L label
         self.pl_var = tk.StringVar()
-        self.pl_label = tk.Label(self.root, textvariable=self.pl_var, font=('Consolas', 12, 'bold'), bg=DARK_BG)
-        self.pl_label.pack(pady=(0, 8))
+        self.pl_label = tk.Label(self.root, textvariable=self.pl_var, font=HEADER_FONT, bg=DARK_BG)
+        self.pl_label.pack(pady=(0, 24))
 
         # Command input
         input_frame = tk.Frame(self.root, bg=DARK_BG)
-        input_frame.pack(padx=10, pady=(0, 10), fill='x')
-        self.input_entry = tk.Entry(input_frame, bg=DARK_ENTRY, fg=DARK_FG, insertbackground=DARK_FG, font=FONT, borderwidth=2, relief='flat')
-        self.input_entry.pack(side='left', fill='x', expand=True)
+        input_frame.pack(padx=20, pady=(0, 30), fill='x')
+        self.input_entry = tk.Entry(input_frame, bg=DARK_ENTRY, fg=DARK_FG, insertbackground=DARK_FG, font=FONT_SANS, borderwidth=2, relief='groove', highlightthickness=2, highlightbackground=ACCENT)
+        self.input_entry.pack(side='left', fill='x', expand=True, padx=(0, 0), ipady=6)
         self.input_entry.bind('<Return>', self.process_command)
+        # Modern submit button
+        submit_btn = tk.Button(input_frame, text='Submit', font=FONT_SANS, bg=ACCENT, fg='white', activebackground='#357ab7', activeforeground='white', borderwidth=0, relief='flat', padx=18, pady=6, command=lambda: self.process_command())
+        submit_btn.pack(side='right')
         self.input_entry.focus()
-        tk.Label(input_frame, text='↵', bg=DARK_BG, fg=DARK_FG, font=FONT).pack(side='right', padx=6)
+        # Removed the ↵ label and right-side padding
 
     def print_welcome(self):
-        self.print_output("Welcome to SW paper trading system! Type commands below.\nType 'help' for a list of commands.")
+        self.print_output("Welcome to SW paper trading system! Type commands below.\nType 'help' for a list of commands.\n(Press ` or ~ to focus the command input box.)")
 
     def print_output(self, text, error=False):
         self.output.config(state='normal')
@@ -123,6 +155,9 @@ class PaperTradingApp:
         for row in self.tree.get_children():
             self.tree.delete(row)
         tickers = self.account.Tickers
+        # Dynamically set Treeview height based on number of rows
+        num_rows = max(1, min(len(tickers), 20))
+        self.tree.config(height=num_rows)
         qtys = self.account.Quantity
         prices = []
         values = []
@@ -148,14 +183,14 @@ class PaperTradingApp:
                     pl_pct = (pl / (buy_price * qty)) * 100
                     total_unrealized_pl += pl
                     total_invested += buy_price * qty
-                    type_display.append('🟢 long')
+                    type_display.append('LONG')
                 elif qty < 0:
                     values.append(f"-${value:,.2f}")
                     pl = (buy_price - p) * abs(qty)
                     pl_pct = (pl / (buy_price * abs(qty))) * 100 if buy_price != 0 else 0
                     total_unrealized_pl += pl
                     total_invested += buy_price * abs(qty)
-                    type_display.append('🔴 short')
+                    type_display.append('SHORT')
                 else:
                     values.append(f"${value:,.2f}")
                     pl = 0
@@ -168,7 +203,25 @@ class PaperTradingApp:
         for i in range(len(tickers)):
             avg_cost = self.account.PurchasePrice[i]
             avg_cost_str = f"${avg_cost:,.2f}" if avg_cost is not None else 'N/A'
-            self.tree.insert('', 'end', values=(tickers[i], type_display[i], f"{qtys[i]:.4f}", avg_cost_str, prices[i], values[i], pl_dollars[i], pl_percent[i]))
+            # Zebra striping and P/L coloring
+            row_tags = []
+            row_tags.append('evenrow' if i % 2 == 0 else 'oddrow')
+            # Color P/L column
+            pl_val = pl_dollars[i]
+            if isinstance(pl_val, str) and pl_val.startswith('$'):
+                try:
+                    pl_num = float(pl_val.replace('$','').replace(',',''))
+                    if pl_num > 0:
+                        row_tags.append('pl_positive')
+                    elif pl_num < 0:
+                        row_tags.append('pl_negative')
+                    else:
+                        row_tags.append('pl_neutral')
+                except Exception:
+                    row_tags.append('pl_neutral')
+            else:
+                row_tags.append('pl_neutral')
+            self.tree.insert('', 'end', values=(tickers[i], type_display[i], f"{qtys[i]:.4f}", avg_cost_str, prices[i], values[i], pl_dollars[i], pl_percent[i]), tags=tuple(row_tags))
         self.cash_var.set(f"Cash: ${self.account.get_cash():,.2f}")
         # Overall P/L display
         if total_invested > 0:
@@ -178,6 +231,11 @@ class PaperTradingApp:
         pl_color = GREEN if total_unrealized_pl > 0 else RED if total_unrealized_pl < 0 else DARK_FG
         self.pl_label.config(fg=pl_color)
         self.pl_var.set(f"Unrealized P/L: ${total_unrealized_pl:,.2f}  ({pl_pct:+.2f}%)\nRealized P/L: ${realized_pl:,.2f}")
+        # Re-apply last sort if any, else default to Value descending
+        if self._last_sorted_col is not None:
+            self.sort_by_column(self._last_sorted_col, force_desc=self._last_sort_desc, remember=False)
+        else:
+            self.sort_by_column('Value', force_desc=True, remember=False)
 
     def process_command(self, event=None):
         # Clear output area before showing new command output
@@ -195,13 +253,24 @@ class PaperTradingApp:
         args = parts[1:]
         try:
             if cmd == 'buy' and len(args) == 2:
-                ticker = args[0].upper()
-                amount = parse_amount(args[1])
+                # Accept both 'buy TICKER AMOUNT' and 'buy AMOUNT TICKER'
+                a1, a2 = args[0], args[1]
+                if a1.replace('.', '', 1).isdigit() or any(c.isdigit() for c in a1):
+                    amount = parse_amount(a1)
+                    ticker = a2.upper()
+                else:
+                    ticker = a1.upper()
+                    amount = parse_amount(a2)
                 success, msg = self.account.buy(ticker, amount)
                 self.print_output(msg, error=not success)
             elif cmd == 'sell' and len(args) == 2:
-                ticker = args[0].upper()
-                amount = parse_amount(args[1])
+                a1, a2 = args[0], args[1]
+                if a1.replace('.', '', 1).isdigit() or any(c.isdigit() for c in a1):
+                    amount = parse_amount(a1)
+                    ticker = a2.upper()
+                else:
+                    ticker = a1.upper()
+                    amount = parse_amount(a2)
                 success, msg = self.account.sell(ticker, amount)
                 self.print_output(msg, error=not success)
             elif cmd == 'sellall' and len(args) == 1:
@@ -209,13 +278,23 @@ class PaperTradingApp:
                 success, msg = self.account.sellall(ticker)
                 self.print_output(msg, error=not success)
             elif cmd == 'short' and len(args) == 2:
-                ticker = args[0].upper()
-                amount = parse_amount(args[1])
+                a1, a2 = args[0], args[1]
+                if a1.replace('.', '', 1).isdigit() or any(c.isdigit() for c in a1):
+                    amount = parse_amount(a1)
+                    ticker = a2.upper()
+                else:
+                    ticker = a1.upper()
+                    amount = parse_amount(a2)
                 success, msg = self.account.short(ticker, amount)
                 self.print_output(msg, error=not success)
             elif cmd == 'cover' and len(args) == 2:
-                ticker = args[0].upper()
-                amount = parse_amount(args[1])
+                a1, a2 = args[0], args[1]
+                if a1.replace('.', '', 1).isdigit() or any(c.isdigit() for c in a1):
+                    amount = parse_amount(a1)
+                    ticker = a2.upper()
+                else:
+                    ticker = a1.upper()
+                    amount = parse_amount(a2)
                 success, msg = self.account.cover(ticker, amount)
                 self.print_output(msg, error=not success)
             elif cmd == 'save':
@@ -238,6 +317,7 @@ class PaperTradingApp:
             elif cmd == 'fa' and len(args) == 1:
                 threading.Thread(target=self.show_financials, args=(args[0].upper(),)).start()
             elif cmd in ('exit', 'quit'):
+                self.account.save()
                 self.root.destroy()
                 sys.exit()
             else:
@@ -402,7 +482,7 @@ class PaperTradingApp:
 
     # schedule_price_update removed: now handled by background thread
 
-    def sort_by_column(self, col):
+    def sort_by_column(self, col, force_desc=None, remember=True):
         # Get all items from the treeview
         data = [(self.tree.set(k, col), k) for k in self.tree.get_children('')]
         # Try to convert data to float for numeric columns
@@ -412,12 +492,21 @@ class PaperTradingApp:
                 return float(val.replace('$','').replace('%','').replace(',','').replace('(','-').replace(')',''))
             except Exception:
                 return val
-        data.sort(key=lambda t: try_float(t[0]), reverse=self._sort_orders[col])
+        # Determine sort order
+        if force_desc is not None:
+            reverse = force_desc
+        else:
+            reverse = self._sort_orders[col]
+        data.sort(key=lambda t: try_float(t[0]), reverse=reverse)
         # Toggle sort order for next click
-        self._sort_orders[col] = not self._sort_orders[col]
+        self._sort_orders[col] = not reverse
         # Rearrange items in sorted positions
         for index, (val, k) in enumerate(data):
             self.tree.move(k, '', index)
+        # Remember last sort
+        if remember:
+            self._last_sorted_col = col
+            self._last_sort_desc = reverse
 
 if __name__ == '__main__':
     root = tk.Tk()
