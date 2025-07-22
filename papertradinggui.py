@@ -38,7 +38,7 @@ class PaperTradingApp:
                 if tickers:
                     try:
                         # Use yfinance Tickers for batch price fetch
-                        data = yf.download(' '.join(tickers), period='1d', interval='1m', progress=False, group_by='ticker', threads=True)
+                        data = yf.download(' '.join(tickers), period='1d', interval='1m', progress=False, group_by='ticker', threads=True, auto_adjust=False)
                         for ticker in tickers:
                             try:
                                 if len(tickers) == 1:
@@ -81,10 +81,11 @@ class PaperTradingApp:
 
         tree_frame = tk.Frame(self.root, bg=DARK_BG)
         tree_frame.pack(padx=10, pady=(0, 2), fill='x')
-        self.tree = ttk.Treeview(tree_frame, columns=('Ticker', 'Type', 'Quantity', 'Price', 'Value', 'P/L($)', 'P/L(%)'), show='headings', height=10)
+        self.tree = ttk.Treeview(tree_frame, columns=('Ticker', 'Type', 'Quantity', 'Purchase Price', 'Price', 'Value', 'P/L($)', 'P/L(%)'), show='headings', height=10)
+        self._sort_orders = {col: False for col in self.tree['columns']}  # False: ascending, True: descending
         for col in self.tree['columns']:
-            self.tree.heading(col, text=col)
-            self.tree.column(col, anchor='center', width=90)
+            self.tree.heading(col, text=col, command=lambda _col=col: self.sort_by_column(_col))
+            self.tree.column(col, anchor='center', width=100)
         self.tree.pack(fill='x', expand=True)
 
         # Cash label
@@ -163,7 +164,9 @@ class PaperTradingApp:
                 pl_dollars.append(f"${pl:,.2f}")
                 pl_percent.append(f"{pl_pct:.2f}%")
         for i in range(len(tickers)):
-            self.tree.insert('', 'end', values=(tickers[i], type_display[i], f"{qtys[i]:.4f}", prices[i], values[i], pl_dollars[i], pl_percent[i]))
+            purchase_price = self.account.PurchasePrice[i]
+            purchase_price_str = f"${purchase_price:,.2f}" if purchase_price is not None else 'N/A'
+            self.tree.insert('', 'end', values=(tickers[i], type_display[i], f"{qtys[i]:.4f}", purchase_price_str, prices[i], values[i], pl_dollars[i], pl_percent[i]))
         self.cash_var.set(f"Cash: ${self.account.get_cash():,.2f}")
         # Overall P/L display
         if total_invested > 0:
@@ -397,8 +400,25 @@ class PaperTradingApp:
 
     # schedule_price_update removed: now handled by background thread
 
+    def sort_by_column(self, col):
+        # Get all items from the treeview
+        data = [(self.tree.set(k, col), k) for k in self.tree.get_children('')]
+        # Try to convert data to float for numeric columns
+        def try_float(val):
+            try:
+                # Remove $ and % and commas for conversion
+                return float(val.replace('$','').replace('%','').replace(',','').replace('(','-').replace(')',''))
+            except Exception:
+                return val
+        data.sort(key=lambda t: try_float(t[0]), reverse=self._sort_orders[col])
+        # Toggle sort order for next click
+        self._sort_orders[col] = not self._sort_orders[col]
+        # Rearrange items in sorted positions
+        for index, (val, k) in enumerate(data):
+            self.tree.move(k, '', index)
+
 if __name__ == '__main__':
     root = tk.Tk()
-    root.geometry('1100x800')
+    root.geometry('1200x800')
     app = PaperTradingApp(root)
     root.mainloop() 
