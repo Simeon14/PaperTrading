@@ -109,7 +109,7 @@ class PaperTradingApp:
 
         tree_frame = tk.Frame(self.root, bg=DARK_BG)
         tree_frame.pack(padx=20, pady=(0, 18), fill='x')
-        self.tree = ttk.Treeview(tree_frame, columns=('Ticker', 'Type', 'Quantity', 'Average Cost', 'Price', 'Value', 'P/L($)', 'P/L(%)'), show='headings', height=15, selectmode='browse')
+        self.tree = ttk.Treeview(tree_frame, columns=('Ticker', 'Type', 'Quantity', 'Average Cost', 'Price', 'Value', 'P/L($)', 'P/L(%)', 'Daily P/L(%)'), show='headings', height=15, selectmode='browse')
         self._sort_orders = {col: False for col in self.tree['columns']}  # False: ascending, True: descending
         for col in self.tree['columns']:
             self.tree.heading(col, text=col, command=lambda _col=col: self.sort_by_column(_col))
@@ -171,6 +171,7 @@ class PaperTradingApp:
         type_display = []
         total_unrealized_pl = 0
         total_invested = 0
+        daily_pl_percent = []
         for ticker, qty, buy_price in zip(tickers, qtys, self.account.PurchasePrice):
             p = self.get_price(ticker)
             if p is None or (isinstance(p, float) and (pd.isna(p) or (hasattr(pd, 'isnull') and pd.isnull(p)))):
@@ -203,6 +204,28 @@ class PaperTradingApp:
                     type_display.append('')
                 pl_dollars.append(f"${pl:,.2f}")
                 pl_percent.append(f"{pl_pct:.2f}%")
+            # Calculate daily P/L (%)
+            try:
+                tkf = yf.Ticker(ticker)
+                hist = tkf.history(period="2d")
+                if len(hist) < 2 or p is None:
+                    daily_pct = None
+                else:
+                    prev_close = hist['Close'].iloc[-2]
+                    if prev_close == 0:
+                        daily_pct = None
+                    elif qty > 0:
+                        daily_pct = ((p - prev_close) / prev_close) * 100
+                    elif qty < 0:
+                        daily_pct = ((prev_close - p) / prev_close) * 100
+                    else:
+                        daily_pct = 0
+            except Exception:
+                daily_pct = None
+            if daily_pct is None:
+                daily_pl_percent.append('N/A')
+            else:
+                daily_pl_percent.append(f"{daily_pct:+.2f}%")
         realized_pl = self.account.get_realized_pl()
         overall_pl = total_unrealized_pl + realized_pl
         for i in range(len(tickers)):
@@ -225,11 +248,12 @@ class PaperTradingApp:
                     row_tags.append('pl_neutral')
             else:
                 row_tags.append('pl_neutral')
-            self.tree.insert('', 'end', values=(tickers[i], type_display[i], f"{qtys[i]:.4f}", avg_cost_str, prices[i], values[i], pl_dollars[i], pl_percent[i]), tags=tuple(row_tags))
+            self.tree.insert('', 'end', values=(tickers[i], type_display[i], f"{qtys[i]:.4f}", avg_cost_str, prices[i], values[i], pl_dollars[i], pl_percent[i], daily_pl_percent[i]), tags=tuple(row_tags))
         self.cash_var.set(f"Cash: ${self.account.get_cash():,.2f}")
         # Overall P/L display
-        if total_invested > 0:
-            pl_pct = (total_unrealized_pl / total_invested) * 100
+        STARTING_VALUE = 100000  # Fixed starting value for P/L percentage
+        if STARTING_VALUE > 0:
+            pl_pct = (total_unrealized_pl / STARTING_VALUE) * 100
         else:
             pl_pct = 0
         pl_color = GREEN if total_unrealized_pl > 0 else RED if total_unrealized_pl < 0 else DARK_FG
