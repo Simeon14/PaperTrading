@@ -2,7 +2,7 @@
 
 Run requirements.txt to install required packages
 
-Run the papertradinggui.py to start
+Run papertradinggui.py to start
 
 Type help in the input box for commands
 
