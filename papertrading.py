@@ -407,6 +407,14 @@ def help():
     print("EXIT - Exit the program")
     print("HELP - Show this help message")
 
+TICKER_ALIASES = {
+    'WTI': 'CL=F',
+    'BRENT': 'BZ=F',
+}
+
+def resolve_ticker(ticker):
+    return TICKER_ALIASES.get(ticker.upper(), ticker.upper())
+
 def parse_amount(s):
     """Parse shorthand numbers like 50k, 2.5m, 100 into float values."""
     s = s.lower().replace(',', '')
@@ -420,8 +428,16 @@ def parse_amount(s):
         return float(s)
 
 class PaperTradingAccount:
-    def __init__(self):
-        self.Cash = 1000000
+    def __init__(self, portfolio_id=None):
+        self.portfolio_id = portfolio_id
+        self.is_new_portfolio = False
+        if portfolio_id and portfolio_id != 1:
+            self.positions_file = f'positions_{portfolio_id}.csv'
+            self.cash_file = f'cash_{portfolio_id}.csv'
+        else:
+            self.positions_file = 'positions.csv'
+            self.cash_file = 'cash.csv'
+        self.Cash = 100000
         self.Tickers = []
         self.Quantity = []
         self.PurchasePrice = []
@@ -433,30 +449,32 @@ class PaperTradingAccount:
             'Quantity': self.Quantity,
             'PurchasePrice': self.PurchasePrice
         })
-        df.to_csv('positions.csv', index=False)
-        pd.DataFrame({'Cash': [self.Cash], 'RealizedPL': [self.realized_pl]}).to_csv('cash.csv', index=False)
+        df.to_csv(self.positions_file, index=False)
+        pd.DataFrame({'Cash': [self.Cash], 'RealizedPL': [self.realized_pl]}).to_csv(self.cash_file, index=False)
 
     def load(self):
         try:
-            df = pd.read_csv('positions.csv')
+            df = pd.read_csv(self.positions_file)
             self.Tickers = df['Ticker'].tolist()
             self.Quantity = df['Quantity'].tolist()
             if 'PurchasePrice' in df.columns:
                 self.PurchasePrice = df['PurchasePrice'].tolist()
             else:
                 self.PurchasePrice = [0.0] * len(self.Tickers)
-            df = pd.read_csv('cash.csv')
+            df = pd.read_csv(self.cash_file)
             self.Cash = float(df.loc[0, 'Cash'])
             if 'RealizedPL' in df.columns:
                 self.realized_pl = float(df.loc[0, 'RealizedPL'])
             else:
                 self.realized_pl = 0.0
+            self.is_new_portfolio = False
         except FileNotFoundError:
             self.Tickers = []
             self.Quantity = []
             self.PurchasePrice = []
-            self.Cash = 1000000
+            self.Cash = 100000
             self.realized_pl = 0.0
+            self.is_new_portfolio = True
 
     def price(self, ticker):
         try:

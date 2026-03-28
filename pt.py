@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-from papertrading import PaperTradingAccount, parse_amount
+from papertrading import PaperTradingAccount, parse_amount, resolve_ticker
 import yfinance as yf
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -22,9 +22,13 @@ HEADER_FONT = ('Segoe UI', 13, 'bold')
 MONO_FONT = ('Consolas', 12)
 
 class PaperTradingApp:
-    def __init__(self, root):
+    def __init__(self, root, portfolio_id=None):
         self.root = root
-        self.root.title('SW Paper Trading Dashboard')
+        self.portfolio_id = portfolio_id
+        title = 'SW Paper Trading Dashboard'
+        if portfolio_id and portfolio_id != 1:
+            title += f' — Portfolio {portfolio_id}'
+        self.root.title(title)
         self.root.configure(bg=DARK_BG)
         self.root.geometry('1800x1200')
         self.root.minsize(1200, 800)
@@ -35,7 +39,7 @@ class PaperTradingApp:
                 self.root.iconbitmap(icon_path)
             except Exception:
                 pass
-        self.account = PaperTradingAccount()
+        self.account = PaperTradingAccount(portfolio_id=portfolio_id)
         self.account.load()
         self.latest_prices = {}  # Cache for latest prices
         self.price_thread_running = True
@@ -146,6 +150,12 @@ class PaperTradingApp:
 
     def print_welcome(self):
         self.print_output("Welcome to SW paper trading system! Type commands below.\nType 'help' for a list of commands.\n(Press ` or ~ to focus the command input box.)")
+        if self.portfolio_id and self.portfolio_id != 1:
+            if self.account.is_new_portfolio:
+                self.print_output(f"Created new portfolio {self.portfolio_id} with $100,000.00")
+                self.account.save()
+            else:
+                self.print_output(f"Loaded portfolio {self.portfolio_id}")
 
     def print_output(self, text, error=False):
         self.output.config(state='normal')
@@ -285,9 +295,9 @@ class PaperTradingApp:
                 a1, a2 = args[0], args[1]
                 if a1.replace('.', '', 1).isdigit() or any(c.isdigit() for c in a1):
                     amount = parse_amount(a1)
-                    ticker = a2.upper()
+                    ticker = resolve_ticker(a2)
                 else:
-                    ticker = a1.upper()
+                    ticker = resolve_ticker(a1)
                     amount = parse_amount(a2)
                 success, msg = self.account.buy(ticker, amount)
                 self.print_output(msg, error=not success)
@@ -295,23 +305,23 @@ class PaperTradingApp:
                 a1, a2 = args[0], args[1]
                 if a1.replace('.', '', 1).isdigit() or any(c.isdigit() for c in a1):
                     amount = parse_amount(a1)
-                    ticker = a2.upper()
+                    ticker = resolve_ticker(a2)
                 else:
-                    ticker = a1.upper()
+                    ticker = resolve_ticker(a1)
                     amount = parse_amount(a2)
                 success, msg = self.account.sell(ticker, amount)
                 self.print_output(msg, error=not success)
             elif cmd == 'sellall' and len(args) == 1:
-                ticker = args[0].upper()
+                ticker = resolve_ticker(args[0])
                 success, msg = self.account.sellall(ticker)
                 self.print_output(msg, error=not success)
             elif cmd == 'short' and len(args) == 2:
                 a1, a2 = args[0], args[1]
                 if a1.replace('.', '', 1).isdigit() or any(c.isdigit() for c in a1):
                     amount = parse_amount(a1)
-                    ticker = a2.upper()
+                    ticker = resolve_ticker(a2)
                 else:
-                    ticker = a1.upper()
+                    ticker = resolve_ticker(a1)
                     amount = parse_amount(a2)
                 success, msg = self.account.short(ticker, amount)
                 self.print_output(msg, error=not success)
@@ -319,9 +329,9 @@ class PaperTradingApp:
                 a1, a2 = args[0], args[1]
                 if a1.replace('.', '', 1).isdigit() or any(c.isdigit() for c in a1):
                     amount = parse_amount(a1)
-                    ticker = a2.upper()
+                    ticker = resolve_ticker(a2)
                 else:
-                    ticker = a1.upper()
+                    ticker = resolve_ticker(a1)
                     amount = parse_amount(a2)
                 success, msg = self.account.cover(ticker, amount)
                 self.print_output(msg, error=not success)
@@ -337,13 +347,13 @@ class PaperTradingApp:
             elif cmd == 'help':
                 self.print_output("""Commands:\n  buy (ticker) (amount)\n  sell (ticker) (amount)\n  sellall (ticker)\n  short (ticker) (amount)\n  cover (ticker) (amount)\n  q (ticker)\n  g (ticker)\n  des (ticker)\n  fa (ticker)\n  save\n  load\n  list\n  help\n  exit\nExamples:\n  buy AAPL 50k\n  sell TSLA 10k\n  short MSFT 100k\n  cover MSFT 50k\n  q AAPL\n  g TSLA\n  des MSFT\n  fa AAPL\n""")
             elif cmd == 'q' and len(args) == 1:
-                self.quote(args[0].upper())
+                self.quote(resolve_ticker(args[0]))
             elif cmd == 'g' and len(args) == 1:
-                threading.Thread(target=self.plot_yearly, args=(args[0].upper(),)).start()
+                threading.Thread(target=self.plot_yearly, args=(resolve_ticker(args[0]),)).start()
             elif cmd == 'des' and len(args) == 1:
-                self.description(args[0].upper())
+                self.description(resolve_ticker(args[0]))
             elif cmd == 'fa' and len(args) == 1:
-                threading.Thread(target=self.show_financials, args=(args[0].upper(),)).start()
+                threading.Thread(target=self.show_financials, args=(resolve_ticker(args[0]),)).start()
             elif cmd in ('exit', 'quit'):
                 self.account.save()
                 self.root.destroy()
@@ -539,7 +549,14 @@ class PaperTradingApp:
             self._last_sort_desc = reverse
 
 if __name__ == '__main__':
+    import re
+    portfolio_id = None
+    for arg in sys.argv[1:]:
+        m = re.match(r'^-(\d+)$', arg)
+        if m:
+            portfolio_id = int(m.group(1))
+            break
     root = tk.Tk()
     root.geometry('1200x800')
-    app = PaperTradingApp(root)
+    app = PaperTradingApp(root, portfolio_id=portfolio_id)
     root.mainloop() 
