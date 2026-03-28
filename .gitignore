@@ -1,0 +1,10 @@
+# Local position/portfolio data
+positions*.csv
+cash*.csv
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
